@@ -822,4 +822,170 @@ class spinprior_ECOs_totally_reflective(object):
     def log_pdf(self,chi_1,chi_2):
         xp = get_module_array(chi_1)
         return xp.log(self.pdf(chi_1,chi_2))
+
+def linear_function(x, xa, ya, yb, xb):
+    x = np.asarray(x)
+    y = np.zeros_like(x, dtype=float)
+
+    if not (0 <= ya <= yb <= 1):
+        raise ValueError("Parameter value error")
+    if xa <= 0:
+        raise ValueError("Parameter value error")
+
+    # Discesa da b a a tra 0 e xa
+    mask = (x >= xb) & (x <= xa)
+    slope = (ya - yb) / (xa - xb)
+    y[mask] = slope * (x[mask]-xb) + yb
+
+    return y
+
+def check_norm(func, y, num_points=1000):
+    """
+    Calcola numericamente l'integrale della funzione `func` tra a e b utilizzando il metodo dei trapezi.
+    """
+    
+
+    
+    integral = np.trapz(func, y)  
+
+    print(f"Integrale = {integral:.6f}")
+
+    if abs(integral - 1) < 1e-6:
+        print("La funzione è normalizzata.")
+    else:
+        print("La funzione NON era normalizzata.")
+        values_normalized=func/integral
+        new_integral=np.trapz(values_normalized,y)
+        print(f"Il nuovo integrale dopo normalizzazione è = {new_integral:.6f}")
+        return values_normalized
+    return integral
+
+class my_linear_mod(object):
+    def __init__(self):
+        self.population_parameters= ['xa',
+                                     'delta_xa', 'yb', 'ya', 'xb',
+                                     'alpha_chi_low','beta_chi_low',
+                                     'alpha_chi_high','beta_chi_high','sigma_t','csi_spin']
+        self.event_parameters=['chi_1','chi_2','cos_t_1','cos_t_2']
+
+
+    def update(self,**kwargs):
+
+        self.alpha_chi_low = kwargs['alpha_chi_low']
+        self.beta_chi_low = kwargs['beta_chi_low']
+        self.alpha_chi_high = kwargs['alpha_chi_high']
+        self.beta_chi_high = kwargs['beta_chi_high']
+        self.csi_spin = kwargs['csi_spin']
+        self.ya = kwargs['ya']
+        self.xa = kwargs['xa']
+        self.yb = kwargs['yb']
+        self.xb = kwargs['xb']
+        self.delta_xa = kwargs['delta_xa']
+        
+        if (self.alpha_chi_low <= 1) | (self.beta_chi_low <= 1) | (self.alpha_chi_high <= 1) | (self.beta_chi_high <= 1):
+            raise ValueError('Alpha and Beta must be > 1')
+
+        self.beta_pdf_chi_low = BetaDistribution(self.alpha_chi_low,self.beta_chi_low)
+        self.beta_pdf_chi_high = BetaDistribution(self.alpha_chi_high,self.beta_chi_high)
+
+        self.xa, self.delta_xa, self.yb = kwargs['xa'], kwargs['delta_xa'], kwargs['yb']
+
+        self.aligned_pdf = TruncatedGaussian(1.,kwargs['sigma_t'],-1.,1.)
+
+
+    def log_pdf(self,chi_1,chi_2,cos_t_1,cos_t_2,mass_1_source,mass_2_source):
+        try:
+            wz_1 = linear_function(mass_1_source, self.xa, self.ya, self.yb, self.xb)
+            wz_2 = linear_function(mass_2_source, self.xa, self.ya, self.yb, self.xb)
+
+            pdf_1 = wz_1*self.beta_pdf_chi_low.pdf(chi_1)+(1-wz_1)*self.beta_pdf_chi_high.pdf(chi_1)
+            pdf_2 = wz_2*self.beta_pdf_chi_low.pdf(chi_2)+(1-wz_2)*self.beta_pdf_chi_high.pdf(chi_2)
+
+            log_angular_part = np.logaddexp(np.log1p(-self.csi_spin)+np.log(0.25),
+                                    np.log(self.csi_spin)+self.aligned_pdf.log_pdf(cos_t_1)+self.aligned_pdf.log_pdf(cos_t_2))
+
+            out = np.log(pdf_1)+np.log(pdf_2)+log_angular_part
+
+            return out
+        except ValueError:
+          return -np.inf
+
+    def pdf(self,chi_1,chi_2,cos_t_1,cos_t_2,mass_1_source,mass_2_source):
+        np = get_module_array(chi_1)
+        return np.exp(self.log_pdf(chi_1,chi_2,cos_t_1,cos_t_2,mass_1_source,mass_2_source))
+        
+
+def taylor_function(m_taylor, mt_taylor, delta_mt_taylor, nbar=0, sll=30):  
+    
+    m_taylor = np.asarray(m_taylor)
+    return np.exp(-0.5*np.power((m_taylor-mt_taylor)/delta_mt_taylor,2.))
+
+def check_norm(func, y, num_points=1000):
+    """
+    Calcola numericamente l'integrale della funzione `func` tra a e b utilizzando il metodo dei trapezi.
+    """
+    
+
+    
+    integral = np.trapz(func, y)  
+
+    print(f"Integrale = {integral:.6f}")
+
+    if abs(integral - 1) < 1e-6:
+        print("La funzione è normalizzata.")
+    else:
+        print("La funzione NON era normalizzata.")
+        values_normalized=func/integral
+        new_integral=np.trapz(values_normalized,y)
+        print(f"Il nuovo integrale dopo normalizzazione è = {new_integral:.6f}")
+        return values_normalized
+    return integral
+    
+    
+class taylor_model(object):
+    def __init__(self):
+        self.population_parameters= ['mt_taylor',
+                                     'delta_mt_taylor',
+                                     'alpha_chi_low','beta_chi_low',
+                                     'alpha_chi_high','beta_chi_high','sigma_t','csi_spin']
+        self.event_parameters=['chi_1','chi_2','cos_t_1','cos_t_2']
+
+
+    def update(self,**kwargs):
+
+        self.alpha_chi_low = kwargs['alpha_chi_low']
+        self.beta_chi_low = kwargs['beta_chi_low']
+        self.alpha_chi_high = kwargs['alpha_chi_high']
+        self.beta_chi_high = kwargs['beta_chi_high']
+        self.csi_spin = kwargs['csi_spin']
+        if (self.alpha_chi_low <= 1) | (self.beta_chi_low <= 1) | (self.alpha_chi_high <= 1) | (self.beta_chi_high <= 1):
+            raise ValueError('Alpha and Beta must be > 1')
+
+        self.beta_pdf_chi_low = BetaDistribution(self.alpha_chi_low,self.beta_chi_low)
+        self.beta_pdf_chi_high = BetaDistribution(self.alpha_chi_high,self.beta_chi_high)
+
+        self.mt_taylor, self.delta_mt_taylor = kwargs['mt_taylor'], kwargs['delta_mt_taylor']
+
+        self.aligned_pdf = TruncatedGaussian(1.,kwargs['sigma_t'],-1.,1.)
+
+
+    def log_pdf(self, chi_1, chi_2, cos_t_1, cos_t_2, mass_1_source,mass_2_source):
+
+        wz_1= taylor_function(mass_1_source, self.mt_taylor, self.delta_mt_taylor, nbar=4, sll=30)
+        wz_2= taylor_function(mass_2_source, self.mt_taylor, self.delta_mt_taylor, nbar=4, sll=30)
+
+        pdf_1=wz_1*self.beta_pdf_chi_low.pdf(chi_1)+(1-wz_1)*self.beta_pdf_chi_high.pdf(chi_1)
+        pdf_2 = wz_2*self.beta_pdf_chi_low.pdf(chi_2)+(1-wz_2)*self.beta_pdf_chi_high.pdf(chi_2)
+
+        log_angular_part = np.logaddexp(np.log1p(-self.csi_spin)+np.log(0.25), 
+                                        np.log(self.csi_spin)+self.aligned_pdf.log_pdf(cos_t_1)+self.aligned_pdf.log_pdf(cos_t_2))
+        
+        out = np.log(pdf_1)+np.log(pdf_2)+log_angular_part
+
+        return out
+
+    def pdf(self,chi_1,chi_2,cos_t_1,cos_t_2,mass_1_source,mass_2_source):
+        np = get_module_array(chi_1)
+        return np.exp(self.log_pdf(chi_1,chi_2,cos_t_1,cos_t_2,mass_1_source,mass_2_source))
+
     
